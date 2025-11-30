@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  air-quality-llm:
+    build:
+      context: ../
+      dockerfile: speedlimit-docker/air-quality-llm/Dockerfile
+    env_file:
+      - ../.env
+    ports:
+      - "8000:8000"
+    networks:
+      - speedlimit-net
+
+  model-inference:
+    build:
+      context: ../
+      dockerfile: speedlimit-docker/model-inference/Dockerfile
+    ports:
+      - "8002:8002"
+    networks:
+      - speedlimit-net
+
+  router-component:
+    build:
+      context: ../
+      dockerfile: speedlimit-docker/router-component/Dockerfile
+    ports:
+      - "8001:8001"
+    networks:
+      - speedlimit-net
+
+  speed-limit-controller:
+    build:
+      context: ../
+      dockerfile: speedlimit-docker/speed-limit-controller/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ROUTER_SERVICE_URL=http://router-component:8001
+      - INFERENCE_SERVICE_URL=http://model-inference:8002
+      - AIR_QUALITY_SERVICE_URL=http://air-quality-llm:8000
+    depends_on:
+      - air-quality-llm
+      - model-inference
+      - router-component
+    networks:
+      - speedlimit-net
+
+networks:
+  speedlimit-net:
+    driver: bridge

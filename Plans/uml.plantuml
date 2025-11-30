@@ -1,0 +1,161 @@
+@startuml
+
+' Style Configuration to ensure no rendering errors
+skinparam componentStyle uml2
+skinparam packageStyle rectangle
+skinparam handwritten false
+skinparam defaultFontName Monospaced
+skinparam shadowing false
+
+title SpeedLimit System - Full Architecture
+
+' ---------------------------------------------------------
+' PACKAGE 1: DATA SOURCE LAYER
+' ---------------------------------------------------------
+package "Data Source Layer" {
+    class "CSVDataManager" {
+        + load_sensors(path: "Sensors.csv")
+        + load_readings(path: "SensorReadings.csv")
+        + load_accidents(path: "accidents.csv")
+    }
+    note bottom of CSVDataManager
+      <b>Source Files:</b>
+      - SensorReadings: Time, SensorID, Value 
+      - accidents: Damage, CloseCarCm, SkidAngle 
+      - SensorTypes: Units (lux, micrometer, etc.)
+    end note
+}
+
+' ---------------------------------------------------------
+' PACKAGE 2: TRAINING STAGE (Offline / Data Science)
+' ---------------------------------------------------------
+package "Training Stage (Offline)" {
+    class "DataCleaner" {
+        + clean_null_values()
+        + align_timestamps()
+    }
+    
+    class "FeatureEngineer" {
+        + calculate_near_accidents(close_cm, skid_angle) : bool
+        + merge_datasets() : DataFrame
+    }
+    note right of FeatureEngineer
+        <b>SPEC4 (Near-Accidents):</b>
+        Defined by Skidding (SkidAngle) or
+        Proximity (CloseCarCm) 
+    end note
+
+    class "ModelTrainer" {
+        + train_neural_network()
+        + evaluate_accuracy()
+        + save_model_to_disk(path: str)
+    }
+    note left of ModelTrainer
+        <b>SPEC3:</b> Learns connection between
+        weather, speed, and accidents.
+        
+    end note
+
+    class "NeuralNetwork_Definition" {
+        - weights_matrix
+        - learning_rate
+        + backpropagate()
+        + optimize()
+    }
+    note bottom of NeuralNetwork_Definition
+       The model architecture
+       being trained.
+    end note
+}
+
+' ---------------------------------------------------------
+' PACKAGE 3: OPERATIONAL STAGE (The MVP App)
+' ---------------------------------------------------------
+package "Operational Stage (Standalone MVP)" {
+    
+    class "MainGUI" {
+        + input_illuminance_lux : int
+        + input_water_micrometers : int
+        + input_temperature_celsius : int
+        + input_air_quality_index : int
+        + on_calculate_click()
+        + display_speed_limit(limit: int)
+    }
+    note top of MainGUI
+        <b>MVP Interface:</b>
+        Replaces physical sensors with
+        manual parameter entry.
+       
+    end note
+
+    class "SpeedLimitController" {
+        - DEFAULT_LIMIT : int = 80
+        + process_cycle(inputs) : int
+    }
+    note right of SpeedLimitController
+        <b>Orchestrator Logic:</b>
+        1. Check Router (Weather/Dark)
+        2. If Bad: Call TrainedModel
+        3. If Good: Check AirQuality
+        4. Else: 80 km/h 
+    end note
+
+    class "RouterComponent" {
+        - THRESHOLD_LUX : int = 500
+        - THRESHOLD_WATER : int = 1000
+        - THRESHOLD_TEMP : int = 0
+        + check_conditions(lux, water, temp) : bool
+    }
+    note bottom of RouterComponent
+        <b>SPEC1 & SPEC2:</b>
+        Dark < 500 lux OR
+        Ice (>1000um Water & <0 C).
+        Returns True if NN is needed.
+        
+    end note
+
+    class "AirQualityComponent" {
+        + get_reduction_amount(aqi: int) : int
+    }
+    note bottom of AirQualityComponent
+        <b>REQ2:</b>
+        Queries LLM as no historical
+        data exists for air quality.
+        
+    end note
+
+    class "LLMClient" {
+        + query_api(prompt: str) : str
+    }
+
+    class "TrainedModel_Inference" {
+        + load_from_file(path: str)
+        + predict_reduction(weather_features) : float
+    }
+    note bottom of TrainedModel_Inference
+       The "Frozen" model artifact
+       loaded for prediction.
+    end note
+}
+
+' ---------------------------------------------------------
+' RELATIONSHIPS
+' ---------------------------------------------------------
+
+' Training Flow
+CSVDataManager --> DataCleaner
+DataCleaner --> FeatureEngineer
+FeatureEngineer --> ModelTrainer
+ModelTrainer *-- NeuralNetwork_Definition : "Optimizes"
+
+' Deployment Link (Dashed to show it's a file transfer, not code dependency)
+ModelTrainer ..> TrainedModel_Inference : "<<deploys file to>>"
+
+' Operational Flow
+MainGUI --> SpeedLimitController : "User Input"
+SpeedLimitController --> RouterComponent : "1. Checks Triggers"
+SpeedLimitController --> TrainedModel_Inference : "2. Predicts (if Router=True)"
+SpeedLimitController --> AirQualityComponent : "3. Checks Air (if Router=False)"
+AirQualityComponent --> LLMClient : "Queries API"
+
+@enduml
